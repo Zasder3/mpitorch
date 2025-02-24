@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Environment
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.ipynb_checkpoints
+*.ipynb
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+wandb/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Misc
+*.swp
+*~
+private/
