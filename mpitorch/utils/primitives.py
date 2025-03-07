@@ -6,16 +6,21 @@ from torch.autograd import Function
 class _AllGather(Function):
     @staticmethod
     def forward(ctx, i: torch.Tensor, comm: MPI.Comm, gather_dim: int):
-        i = i.transpose(gather_dim, 0).detach()  # (gather_dim, ...)
+        # Make sure input is contiguous
+        i = i.transpose(gather_dim, 0).contiguous().detach()  # (gather_dim, ...)
+
         ctx.comm = comm
         ctx.gather_dim = gather_dim  # Save gather_dim for backward pass
+
         output = torch.empty(
             i.shape[0] * comm.size, *i.shape[1:], device=i.device, dtype=i.dtype
         )  # (gather_dim, ...)
+
         comm.Allgather(i, output)
-        output = output.transpose(
-            gather_dim, 0
-        ).clone()  # Clone the output to avoid view issues
+
+        # Transpose 0 dimension back to gather_dim
+        output = output.transpose(0, gather_dim).contiguous().clone()
+
         return output
 
     @staticmethod
@@ -75,10 +80,11 @@ class _ReduceScatter(Function):
 
 class _Broadcast(Function):
     @staticmethod
-    def forward(ctx, i: torch.Tensor, comm: MPI.Comm, broadcast_dim: int):
+    def forward(ctx, i: torch.Tensor, comm: MPI.Comm, root: int):
         ctx.comm = comm
-        output = torch.empty_like(i)
-        comm.Bcast(i, root=0)
+        ctx.root = root
+        output = i.detach().clone()
+        comm.Bcast(output, root=root)
         return output
 
     @staticmethod
@@ -86,8 +92,8 @@ class _Broadcast(Function):
         grad_output = grad_output.detach()
         comm = ctx.comm
         grad_input = torch.empty_like(grad_output)
-        comm.Reduce(grad_output, grad_input, root=0, op=MPI.SUM)
-        if comm.rank != 0:
+        comm.Reduce(grad_output, grad_input, root=ctx.root, op=MPI.SUM)
+        if comm.rank != ctx.root:
             grad_input.zero_()
         return grad_input, None, None
 
@@ -104,5 +110,5 @@ def all_reduce(i: torch.Tensor, comm: MPI.Comm, reduce_dim: int):
     return _AllGather.apply(_ReduceScatter.apply(i, comm, reduce_dim), comm, reduce_dim)
 
 
-def broadcast(i: torch.Tensor, comm: MPI.Comm, broadcast_dim: int):
-    return _Broadcast.apply(i, comm, broadcast_dim)
+def broadcast(i: torch.Tensor, comm: MPI.Comm, root: int):
+    return _Broadcast.apply(i, comm, root)
